@@ -268,6 +268,12 @@ func BaseVMKernelSchema() map[string]*schema.Schema {
 			Default:     "defaultTcpipStack",
 			ForceNew:    true,
 		},
+		"service": {
+			Type:        schema.TypeString,
+			Optional:    true,
+			Description: "service setting for this interface. Possible values are 'defaultTcpipStack', 'vmotion', 'provisioning'",
+			Default:     "faultToleranceLogging",
+		},
 	}
 	return sch
 }
@@ -315,6 +321,22 @@ func createVNic(d *schema.ResourceData, meta interface{}) (string, error) {
 	if err != nil {
 		return "", err
 	}
+
+    //sudha
+	service := d.Get("service").(string)
+	hostNic, err := getVnicFromHost(ctx, client, hostID, nicID)
+	if err != nil {
+		return service, err
+	}
+ 	hvm, err := getHostVirtualNicManager(client, hostID)
+	if err != nil {
+		return "", err
+	}
+	err = hvm.SelectVnic(ctx, service, hostNic.Device)
+	if err != nil {
+		return service, err
+	}
+
 	d.SetId(fmt.Sprintf("%s_%s", hostID, nicID))
 	return nicID, nil
 }
@@ -326,6 +348,23 @@ func removeVnic(client *govmomi.Client, hostID, nicID string) error {
 	}
 
 	return hns.RemoveVirtualNic(context.TODO(), nicID)
+}
+
+func getHostVirtualNicManager(client *govmomi.Client, hostID string) (*object.HostVirtualNicManager, error) {
+	ctx := context.TODO()
+
+	host, err := hostsystem.FromID(client, hostID)
+	if err != nil {
+		return nil, err
+	}
+	cmRef := host.ConfigManager().Reference()
+	cm := object.NewHostConfigManager(client.Client, cmRef)
+	hvm, err := cm.VirtualNicManager(ctx)
+	if err != nil {
+		log.Printf("[DEBUG] Failed to access the host's NetworkSystem service: %s", err)
+		return nil, err
+	}
+	return hvm, nil
 }
 
 func getHostNetworkSystem(client *govmomi.Client, hostID string) (*object.HostNetworkSystem, error) {
